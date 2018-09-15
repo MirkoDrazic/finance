@@ -1,5 +1,5 @@
 import os
-
+import datetime
 from flask_sqlalchemy import SQLAlchemy
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 from flask_session import Session
@@ -19,28 +19,29 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ['DATABASE_URL']
 db = SQLAlchemy(app)
 
 class User(db.Model):
-    __tablename__ = 'users'
+    #__tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     hash = db.Column(db.String(120), unique=True, nullable=False)
     cash = db.Column(db.Float, default = '10000', nullable = False)
-    hist = db.relationship('history', backref = 'person', lazy = True)
-    portfol = db.relationship('portfolio', backref = 'person', lazy = True)
+    hist = db.relationship('History', backref = 'user', lazy = True)
+    portfol = db.relationship('Portfolio', backref = 'user', lazy = True)
 
 class History(db.Model):
-    __tablename__ = 'history'
-    id = db.Column(db.Integer, db.ForeignKey('person.id'), nullable = False)
-    symbol = db.Column(db.String(20), nullable = False)
-    shares = db.Column(db.Integer, nullable = False)
-    price = db.Column(db.Float, nullable = False)
-    transacted = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    #__tablename__ = 'history'
+    id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable = False, primary_key=True)
+    symbol = db.Column(db.String(20), nullable = False, primary_key=True)
+    shares = db.Column(db.Integer, nullable = False, primary_key=True)
+    price = db.Column(db.Float, nullable = False, primary_key=True)
+    transacted = db.Column(db.DateTime, default=datetime.datetime.utcnow, primary_key=True)
 
 class Portfolio(db.Model):
-    __tablename__ = 'portfolio'
-    id = db.Column(db.Integer, db.ForeignKey('person.id'), nullable = False)
-    symbol = db.Column(db.String(20), nullable = False)
+    #__tablename__ = 'portfolio'
+    id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable = False, primary_key=True)
+    symbol = db.Column(db.String(20), nullable = False, primary_key=True)
     shares = db.Column(db.Integer, nullable = False)
-
+db.create_all()
+db.session.commit()
 
 # Ensure responses aren't cached
 @app.after_request
@@ -79,13 +80,12 @@ def index():
         new_rows_of_pf = []
         for row in rows_of_pf:
             new_pf_dict = {}
-            quote = lookup(row['symbol'])
+            quote = lookup(row.symbol)
             new_pf_dict['symbol'] = quote['symbol']
             new_pf_dict['name'] = quote['name']
             new_pf_dict['price'] = quote['price']
-            new_pf_dict['shares'] = row['shares']
-            new_pf_dict['total'] = row['shares'] * quote['price']
-
+            new_pf_dict['shares'] = row.shares
+            new_pf_dict['total'] = row.shares * quote['price']
             new_rows_of_pf.append(new_pf_dict)
     cashier = User.query.get(session['user_id'])
     #cashier = db.execute('SELECT cash FROM users WHERE id = :id', id = session['user_id'])
@@ -138,7 +138,7 @@ def buy():
             #db.execute('UPDATE users SET cash = :updated_cash WHERE id = :id', updated_cash = updated_cash, id = session['user_id'])
 
             # update portfolio table based on the appropriate stock symbol
-            rows_of_pf = Portfolio.query.filter_by(id = session['user_id'], symbol = symbol).all()
+            rows = Portfolio.query.filter_by(id = session['user_id'], symbol = symbol).all()
             #rows = db.execute('SELECT * FROM portfolio WHERE id=:id AND symbol=:symbol', id=session['user_id'], symbol=symbol)
 
             # if there are no shares of the particular symbol, INSERT a new row into portfolio
@@ -148,7 +148,7 @@ def buy():
                 db.session.commit()
                 #db.execute('INSERT INTO portfolio (id, symbol, shares) VALUES (:id, :symbol, :shares)', id = session['user_id'], symbol = symbol, shares = shares)
             else:
-                asset = Portfolio.query.filter_by(id = session['user_id'], symbol = symbol)
+                asset = Portfolio.query.filter_by(id = session['user_id'], symbol = symbol).all()[0]
                 asset.shares += shares
                 db.session.commit()
                 #db.execute('UPDATE portfolio SET shares = shares + :shares WHERE id=:id AND symbol=:symbol', id=session['user_id'], symbol = symbol,  shares = shares)
@@ -191,15 +191,16 @@ def login():
             return apology("must provide password", 403)
 
         # Query database for username
-        rows = User.query.filterby(username = request.form.get("username"))
+        rows = User.query.filter_by(username = request.form.get("username")).all()
         #rows = db.execute("SELECT * FROM users WHERE username = :username", username=request.form.get("username"))
 
         # Ensure username exists and password is correct
-        if len(rows) != 1 or not check_password_hash(rows[0]["hash"], request.form.get("password")):
+        if len(rows) != 1 or not check_password_hash(rows[0].hash, request.form.get("password")):
+        #if len(rows) != 1 or not check_password_hash(rows[0]["hash"], request.form.get("password")):
             return apology("invalid username and/or password", 403)
 
         # Remember which user has logged in
-        session["user_id"] = rows[0]["id"]
+        session["user_id"] = rows[0].id
 
         # Redirect user to home page
         return redirect("/")
@@ -268,7 +269,7 @@ def register():
         elif request.form.get('password_confirmation') != request.form.get('password'):
             return apology("passwords don't match")
         # ensure username is not taken
-        elif User.query.filter_by(username = request.form.get('username')):
+        elif User.query.filter_by(username = request.form.get('username')).all():
         #elif db.execute('SELECT * FROM users WHERE username = :username', username = request.form.get("username")):
             return apology('username is already taken')
 
@@ -319,11 +320,11 @@ def sell():
 
         # checking if the user has the share he has typed in
         shares_already_list = Portfolio.query.filter_by(id=session['user_id'], symbol=symbol).all()
-        shares_already_list = [asset.shares for asset in shares_already_list]
+        #shares_already_list = [asset.shares for asset in shares_already_list]
         #shares_already_list = db.execute('SELECT shares FROM portfolio WHERE id=:id AND symbol=:symbol', id=session['user_id'], symbol=symbol)
         if len(shares_already_list) == 0:
             return apology('symbol not owned')
-        shares_already = shares_already_list[0]['shares']
+        shares_already = shares_already_list[0].shares
         updated_shares = shares_already - shares
         if updated_shares < 0:
             return apology('Too many shares')
@@ -336,7 +337,7 @@ def sell():
         cash_increase = price * shares
 
         # update cash from users table
-        user = User.query.get(id=session['user_id'])
+        user = User.query.get(session['user_id'])
         user.cash += cash_increase
         db.session.commit()
         #db.execute('UPDATE users SET cash=cash + :cash_increase WHERE id=:id', id=session['user_id'], cash_increase = cash_increase)
@@ -344,13 +345,13 @@ def sell():
         # update the portfolio table
         # if the updated shares==0 then delete the row with the symbol
         if updated_shares == 0:
-            asset_for_deletion = Portfolio.query.filter_by(id=session['user_id'], symbol=symbol)
+            asset_for_deletion = Portfolio.query.filter_by(id=session['user_id'], symbol=symbol).all()[0]
             db.session.delete(asset_for_deletion)
             db.session.commit()
             #db.execute('DELETE FROM portfolio WHERE id=:id AND symbol = :symbol', id=session['user_id'], symbol=symbol)
         #else
         elif updated_shares > 0 :
-            asset = Portfolio.query.filter_by(id=session['user_id'], symbol = symbol)
+            asset = Portfolio.query.filter_by(id=session['user_id'], symbol = symbol).all()[0]
             asset.shares = updated_shares
             db.session.commit()
             #db.execute('UPDATE portfolio SET shares= :updated_shares WHERE id=:id AND symbol=:symbol', id = session['user_id'], symbol = symbol, updated_shares = updated_shares)
