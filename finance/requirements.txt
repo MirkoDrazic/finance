@@ -13,4 +13,4 @@ psycopg2==2.7.3.2
 requests==2.19.1
 SQLAlchemy==1.1.15
 urllib3==1.23
-Werkzeug==0.12.2
+Werkzeug==0.15.3
